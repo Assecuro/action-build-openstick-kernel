@@ -123,8 +123,6 @@ jobs:
       id: configure
       run: |
         cd linux-src
-        # Apply q6voice VoiceMMode1 before kernel patch update; the patch is based on msm8916 branch sources.
-        git apply $GITHUB_WORKSPACE/workspace/patch/q6voice-voicemmode1.patch
         export ARCH=$ARCH
         if [ "${{ inputs.cc_type }}" = "clang" ]; then
           export LD=ld.lld
@@ -158,6 +156,10 @@ jobs:
           chmod +x $GITHUB_WORKSPACE/workspace/update-kernel.sh
           $GITHUB_WORKSPACE/workspace/update-kernel.sh
         fi
+        # Replace q6voice files with adapted VoiceMMode1-enabled versions.
+        cp $GITHUB_WORKSPACE/workspace/patch/q6voice-files/q6mvm.c sound/soc/qcom/qdsp6/q6mvm.c
+        cp $GITHUB_WORKSPACE/workspace/patch/q6voice-files/q6voice.h sound/soc/qcom/qdsp6/q6voice.h
+        cp $GITHUB_WORKSPACE/workspace/patch/q6voice-files/q6voice-dai.c sound/soc/qcom/qdsp6/q6voice-dai.c
         case "${{ inputs.config_profile }}" in
           defconfig)
             make msm8916_defconfig
