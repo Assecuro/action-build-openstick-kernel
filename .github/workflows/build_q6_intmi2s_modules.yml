@@ -164,6 +164,8 @@ jobs:
           cp arch/arm64/boot/dts/qcom/msm8916-thwc-ufi001c.dtb "$out/"
           cp sound/soc/qcom/qdsp6/q6afe.ko "$out/modules/"
           cp sound/soc/qcom/qdsp6/q6afe-dai.ko "$out/modules/"
+          cp sound/soc/qcom/qdsp6/q6adm.ko "$out/modules/"
+          cp sound/soc/qcom/qdsp6/q6routing.ko "$out/modules/"
           cp sound/soc/qcom/qdsp6/snd-q6dsp-common.ko "$out/modules/"
           cp sound/soc/qcom/qdsp6/q6voice.ko "$out/modules/"
           cp sound/soc/qcom/qdsp6/q6voice-common.ko "$out/modules/"
