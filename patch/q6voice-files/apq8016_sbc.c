@@ -186,6 +186,11 @@ static int qdsp6_dai_get_lpass_id(struct snd_soc_dai *cpu_dai)
 	}
 }
 
+static bool qdsp6_dai_is_int_mi2s(struct snd_soc_dai *cpu_dai)
+{
+	return cpu_dai->id >= INT0_MI2S_RX && cpu_dai->id <= INT6_MI2S_TX;
+}
+
 static int msm8916_qdsp6_dai_init(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
@@ -206,6 +211,9 @@ static int msm8916_qdsp6_startup(struct snd_pcm_substream *substream)
 	if (mi2s < 0)
 		return mi2s;
 
+	if (qdsp6_dai_is_int_mi2s(cpu_dai))
+		return 0;
+
 	if (++data->mi2s_clk_count[mi2s] > 1)
 		return 0;
 
@@ -225,6 +233,9 @@ static void msm8916_qdsp6_shutdown(struct snd_pcm_substream *substream)
 
 	mi2s = qdsp6_dai_get_lpass_id(cpu_dai);
 	if (mi2s < 0)
+		return;
+
+	if (qdsp6_dai_is_int_mi2s(cpu_dai))
 		return;
 
 	if (--data->mi2s_clk_count[mi2s] > 0)
