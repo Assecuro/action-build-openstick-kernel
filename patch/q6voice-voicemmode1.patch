@@ -1,0 +1,681 @@
+From 95adfe5c46218296eaeb5cba4e00a2753028a18d
+ Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ott
+o=20Pfl=C3=BCger?= <otto.pflueger@abscue.de>
+
+Date: Thu, 20 Apr 2023 18:45:03 +0200
+Subject
+: [PATCH 039/194] hack! ASoC: qdsp6: q6voice-
+dai: Add VoiceMMode1 DAI
+MIME-Version: 1.0
+Co
+ntent-Type: text/plain; charset=UTF-8
+Content
+-Transfer-Encoding: 8bit
+
+VoiceMMode1 is used
+ instead of CS-Voice on newer firmwares.
+
+Sig
+ned-off-by: Otto Pfl?ger <otto.pflueger@absc
+ue.de>
+(cherry picked from commit e191c0d0848
+8cf85dfac3e8d3de299f9522caba7)
+Link: https://
+github.com/msm8953-mainline/linux
+Signed-off-
+by: Richard Acayan <mailingradian@gmail.com>
+
+---
+ sound/soc/qcom/qdsp6/q6mvm.c       |  14
+ +++
+ sound/soc/qcom/qdsp6/q6voice-dai.c | 18
+9 ++++++++++++++++++++++++-----
+ sound/soc/qc
+om/qdsp6/q6voice.h     |  16 +--
+ 3 files cha
+nged, 178 insertions(+), 41 deletions(-)
+
+dif
+f --git a/sound/soc/qcom/qdsp6/q6mvm.c b/soun
+d/soc/qcom/qdsp6/q6mvm.c
+index a68985cc0f6c..
+d56f7b8620ae 100644
+--- a/sound/soc/qcom/qdsp
+6/q6mvm.c
++++ b/sound/soc/qcom/qdsp6/q6mvm.c
+
+@@ -51,6 +51,20 @@ static inline const char *
+q6mvm_session_name(enum q6voice_path_type pat
+h)
+ 	switch (path) {
+ 	case Q6VOICE_PATH_VOIC
+E:
+ 		return "default modem voice";
++	case Q6
+VOICE_PATH_VOIP:
++		return "10004000";
++	case
+ Q6VOICE_PATH_VOLTE:
++		return "10C02000";
++	
+case Q6VOICE_PATH_VOICE2:
++		return "10DC1000
+";
++	case Q6VOICE_PATH_QCHAT:
++		return "1080
+3000";
++	case Q6VOICE_PATH_VOWLAN:
++		return 
+"10002000";
++	case Q6VOICE_PATH_VOICEMMODE1:
+
++		return "11C05000";
++	case Q6VOICE_PATH_VOI
+CEMMODE2:
++		return "11DC5000";
+ 	default:
+ 	
+	return NULL;
+ 	}
+diff --git a/sound/soc/qcom
+/qdsp6/q6voice-dai.c b/sound/soc/qcom/qdsp6/q
+6voice-dai.c
+index d3d7b003ba8b..dd3599fd9d96
+ 100644
+--- a/sound/soc/qcom/qdsp6/q6voice-da
+i.c
++++ b/sound/soc/qcom/qdsp6/q6voice-dai.c
+
+@@ -11,20 +11,44 @@
+ 
+ #define DRV_NAME	"q6vo
+ice-dai"
+ 
++static enum q6voice_path_type q6v
+oice_get_path(unsigned int dai_id)
++{
++	switc
+h (dai_id) {
++	case CS_VOICE:
++		return Q6VOI
+CE_PATH_VOICE;
++	case VOICEMMODE1:
++		return 
+Q6VOICE_PATH_VOICEMMODE1;
++	}
++
++	return Q6VO
+ICE_PATH_COUNT;
++}
++
+ static int q6voice_dai_
+startup(struct snd_pcm_substream *substream,
+
+ 			       struct snd_soc_dai *dai)
+ {
+ 	stru
+ct q6voice *v = snd_soc_dai_get_drvdata(dai);
+
++	enum q6voice_path_type path = q6voice_get_
+path(dai->driver->id);
+ 
+-	return q6voice_sta
+rt(v, Q6VOICE_PATH_VOICE, substream->stream);
+
++	if (path == Q6VOICE_PATH_COUNT) {
++		dev_e
+rr(dai->dev, "Invalid DAI ID %u\n", dai->driv
+er->id);
++		return -EINVAL;
++	}
++
++	return q6
+voice_start(v, path, substream->stream);
+ }
+ 
+
+ static void q6voice_dai_shutdown(struct snd
+_pcm_substream *substream,
+ 				 struct snd_s
+oc_dai *dai)
+ {
+ 	struct q6voice *v = snd_soc
+_dai_get_drvdata(dai);
++	enum q6voice_path_ty
+pe path = q6voice_get_path(dai->driver->id);
+
++
++	if (path == Q6VOICE_PATH_COUNT) {
++		dev_
+err(dai->dev, "Invalid DAI ID %u\n", dai->dri
+ver->id);
++		return;
++	}
+ 
+-	q6voice_stop(v, 
+Q6VOICE_PATH_VOICE, substream->stream);
++	q6v
+oice_stop(v, path, substream->stream);
+ }
+ 
+ 
+static const struct snd_soc_dai_ops q6voice_d
+ai_ops = {
+@@ -57,6 +81,29 @@ static struct s
+nd_soc_dai_driver q6voice_dais[] = {
+ 		},
+ 	
+	.ops = &q6voice_dai_ops,
+ 	},
++	{
++		.id = V
+OICEMMODE1,
++		.name = "VOICEMMODE1",
++		.pla
+yback = {
++			.stream_name =	"VOICEMMODE1 Pla
+yback",
++			.formats =	SNDRV_PCM_FMTBIT_S16_L
+E,
++			.rates =	SNDRV_PCM_RATE_8000,
++			.rat
+e_min =	8000,
++			.rate_max =	8000,
++			.chan
+nels_min =	1,
++			.channels_max =	1,
++		},
++	
+	.capture = {
++			.stream_name =	"VOICEMMODE1
+ Capture",
++			.formats =	SNDRV_PCM_FMTBIT_S1
+6_LE,
++			.rates =	SNDRV_PCM_RATE_8000,
++			.
+rate_min =	8000,
++			.rate_max =	8000,
++			.c
+hannels_min =	1,
++			.channels_max =	1,
++		},
+
++		.ops = &q6voice_dai_ops,
++	},
+ };
+ 
+ /* F
+IXME: Use codec2codec instead */
+@@ -77,21 +1
+24,28 @@ static int q6voice_dai_open(struct s
+nd_soc_component *component,
+ 	return 0;
+ }
+ 
+
+-static int q6voice_get_mixer(struct snd_kco
+ntrol *kcontrol, struct snd_ctl_elem_value *u
+control)
++static int q6voice_get_mixer(struct
+ snd_kcontrol *kcontrol,
++			     struct snd_
+ctl_elem_value *ucontrol, bool capture)
+ {
+ 	
+struct snd_soc_dapm_context *dapm = snd_soc_d
+apm_kcontrol_to_dapm(kcontrol);
+ 	struct snd_
+soc_component *c = snd_soc_dapm_to_component(
+dapm);
+ 	struct soc_mixer_control *mc =
+ 		(s
+truct soc_mixer_control *)kcontrol->private_v
+alue;
+ 	struct q6voice *v = snd_soc_component
+_get_drvdata(c);
+-	bool capture = !!mc->shift
+;
++	enum q6voice_path_type path = q6voice_get
+_path(mc->shift);
++
++	if (path == Q6VOICE_PAT
+H_COUNT) {
++		dev_err(c->dev, "Invalid DAI ID
+ %u\n", mc->shift);
++		return -EINVAL;
++	}
+ 
+
+ 	ucontrol->value.integer.value[0] =
+-		q6voi
+ce_get_port(v, Q6VOICE_PATH_VOICE, capture) =
+= mc->reg;
++		q6voice_get_port(v, path, captu
+re) == mc->reg;
+ 	return 0;
+ }
+ 
+-static int 
+q6voice_put_mixer(struct snd_kcontrol *kcontr
+ol, struct snd_ctl_elem_value *ucontrol)
++sta
+tic int q6voice_put_mixer(struct snd_kcontrol
+ *kcontrol,
++			     struct snd_ctl_elem_valu
+e *ucontrol, bool capture)
+ {
+ 	struct snd_so
+c_dapm_context *dapm = snd_soc_dapm_kcontrol_
+to_dapm(kcontrol);
+ 	struct snd_soc_component
+ *c = snd_soc_dapm_to_component(dapm);
+@@ -99
+,61 +153,118 @@ static int q6voice_put_mixer(
+struct snd_kcontrol *kcontrol, struct snd_ctl
+_elem_
+ 		(struct soc_mixer_control *)kcontro
+l->private_value;
+ 	struct q6voice *v = snd_s
+oc_component_get_drvdata(c);
+ 	bool val = !!u
+control->value.integer.value[0];
+-	bool captu
+re = !!mc->shift;
++	enum q6voice_path_type pa
+th = q6voice_get_path(mc->shift);
++
++	if (pat
+h == Q6VOICE_PATH_COUNT) {
++		dev_err(c->dev,
+ "Invalid DAI ID %u\n", mc->shift);
++		return
+ -EINVAL;
++	}
+ 
+ 	if (val)
+-		q6voice_set_por
+t(v, Q6VOICE_PATH_VOICE, capture, mc->reg);
+-
+	else if (q6voice_get_port(v, Q6VOICE_PATH_VO
+ICE, capture) == mc->reg)
+-		q6voice_set_port
+(v, Q6VOICE_PATH_VOICE, capture, 0);
++		q6voi
+ce_set_port(v, path, capture, mc->reg);
++	els
+e if (q6voice_get_port(v, path, capture) == m
+c->reg)
++		q6voice_set_port(v, path, capture,
+ 0);
+ 
+ 	snd_soc_dapm_mixer_update_power(dapm
+, kcontrol, val, NULL);
+ 	return 1;
+ }
+ 
+-sta
+tic const struct snd_kcontrol_new voice_tx_mi
+xer_controls[] = {
+-	SOC_SINGLE_EXT("PRI_MI2S
+_TX", PRIMARY_MI2S_TX, 1, 1, 0,
+-		       q6v
+oice_get_mixer, q6voice_put_mixer),
+-	SOC_SIN
+GLE_EXT("SEC_MI2S_TX", SECONDARY_MI2S_TX, 1, 
+1, 0,
+-		       q6voice_get_mixer, q6voice_pu
+t_mixer),
+-	SOC_SINGLE_EXT("TERT_MI2S_TX", TE
+RTIARY_MI2S_TX, 1, 1, 0,
+-		       q6voice_ge
+t_mixer, q6voice_put_mixer),
+-	SOC_SINGLE_EXT
+("QUAT_MI2S_TX", QUATERNARY_MI2S_TX, 1, 1, 0,
+
+-		       q6voice_get_mixer, q6voice_put_mix
+er),
+-	SOC_SINGLE_EXT("QUIN_MI2S_TX", QUINARY
+_MI2S_TX, 1, 1, 0,
+-		       q6voice_get_mixe
+r, q6voice_put_mixer),
++static int q6voice_ge
+t_mixer_capture(struct snd_kcontrol *kcontrol
+,
++				     struct snd_ctl_elem_value *ucontr
+ol)
++{
++	return q6voice_get_mixer(kcontrol, u
+control, true);
++}
++
++static int q6voice_get_
+mixer_playback(struct snd_kcontrol *kcontrol,
+
++				      struct snd_ctl_elem_value *ucontr
+ol)
++{
++	return q6voice_get_mixer(kcontrol, u
+control, false);
++}
++
++static int q6voice_put
+_mixer_capture(struct snd_kcontrol *kcontrol,
+
++				     struct snd_ctl_elem_value *ucontro
+l)
++{
++	return q6voice_put_mixer(kcontrol, uc
+ontrol, true);
++}
++
++static int q6voice_put_m
+ixer_playback(struct snd_kcontrol *kcontrol,
+
++				      struct snd_ctl_elem_value *ucontro
+l)
++{
++	return q6voice_put_mixer(kcontrol, uc
+ontrol, false);
++}
++
++static const struct snd
+_kcontrol_new cs_voice_tx_mixer_controls[] = 
+{
++	SOC_SINGLE_EXT("PRI_MI2S_TX", PRIMARY_MI2
+S_TX, CS_VOICE, 1, 0,
++		       q6voice_get_m
+ixer_capture, q6voice_put_mixer_capture),
++	S
+OC_SINGLE_EXT("SEC_MI2S_TX", SECONDARY_MI2S_T
+X, CS_VOICE, 1, 0,
++		       q6voice_get_mixe
+r_capture, q6voice_put_mixer_capture),
++	SOC_
+SINGLE_EXT("TERT_MI2S_TX", TERTIARY_MI2S_TX, 
+CS_VOICE, 1, 0,
++		       q6voice_get_mixer_c
+apture, q6voice_put_mixer_capture),
++	SOC_SIN
+GLE_EXT("QUAT_MI2S_TX", QUATERNARY_MI2S_TX, C
+S_VOICE, 1, 0,
++		       q6voice_get_mixer_ca
+pture, q6voice_put_mixer_capture),
++	SOC_SING
+LE_EXT("QUIN_MI2S_TX", QUINARY_MI2S_TX, CS_VO
+ICE, 1, 0,
++		       q6voice_get_mixer_captur
+e, q6voice_put_mixer_capture),
++};
++
++static 
+const struct snd_kcontrol_new voicemmode1_tx_
+mixer_controls[] = {
++	SOC_SINGLE_EXT("PRI_MI
+2S_TX", PRIMARY_MI2S_TX, VOICEMMODE1, 1, 0,
++
+		       q6voice_get_mixer_capture, q6voice_p
+ut_mixer_capture),
++	SOC_SINGLE_EXT("SEC_MI2S
+_TX", SECONDARY_MI2S_TX, VOICEMMODE1, 1, 0,
++
+		       q6voice_get_mixer_capture, q6voice_p
+ut_mixer_capture),
++	SOC_SINGLE_EXT("TERT_MI2
+S_TX", TERTIARY_MI2S_TX, VOICEMMODE1, 1, 0,
++
+		       q6voice_get_mixer_capture, q6voice_p
+ut_mixer_capture),
++	SOC_SINGLE_EXT("QUAT_MI2
+S_TX", QUATERNARY_MI2S_TX, VOICEMMODE1, 1, 0,
+
++		       q6voice_get_mixer_capture, q6voice
+_put_mixer_capture),
++	SOC_SINGLE_EXT("QUIN_M
+I2S_TX", QUINARY_MI2S_TX, VOICEMMODE1, 1, 0,
+
++		       q6voice_get_mixer_capture, q6voice_
+put_mixer_capture),
+ };
+ 
+ static const struc
+t snd_kcontrol_new primary_mi2s_rx_mixer_cont
+rols[] = {
+-	SOC_SINGLE_EXT("CS-Voice", PRIMA
+RY_MI2S_RX, 0, 1, 0,
+-		       q6voice_get_mi
+xer, q6voice_put_mixer)
++	SOC_SINGLE_EXT("CS-
+Voice", PRIMARY_MI2S_RX, CS_VOICE, 1, 0,
++		 
+      q6voice_get_mixer_playback, q6voice_put
+_mixer_playback),
++	SOC_SINGLE_EXT("VoiceMMod
+e1", PRIMARY_MI2S_RX, VOICEMMODE1, 1, 0,
++		 
+      q6voice_get_mixer_playback, q6voice_put
+_mixer_playback),
+ };
+ 
+ static const struct 
+snd_kcontrol_new secondary_mi2s_rx_mixer_cont
+rols[] = {
+-	SOC_SINGLE_EXT("CS-Voice", SECON
+DARY_MI2S_RX, 0, 1, 0,
+-		       q6voice_get_
+mixer, q6voice_put_mixer)
++	SOC_SINGLE_EXT("C
+S-Voice", SECONDARY_MI2S_RX, CS_VOICE, 1, 0,
+
++		       q6voice_get_mixer_playback, q6voice
+_put_mixer_playback),
++	SOC_SINGLE_EXT("Voice
+MMode1", SECONDARY_MI2S_RX, VOICEMMODE1, 1, 0
+,
++		       q6voice_get_mixer_playback, q6voi
+ce_put_mixer_playback),
+ };
+ 
+ static const s
+truct snd_kcontrol_new tertiary_mi2s_rx_mixer
+_controls[] = {
+-	SOC_SINGLE_EXT("CS-Voice", 
+TERTIARY_MI2S_RX, 0, 1, 0,
+-		       q6voice_
+get_mixer, q6voice_put_mixer)
++	SOC_SINGLE_EX
+T("CS-Voice", TERTIARY_MI2S_RX, CS_VOICE, 1, 
+0,
++		       q6voice_get_mixer_playback, q6vo
+ice_put_mixer_playback),
++	SOC_SINGLE_EXT("Vo
+iceMMode1", TERTIARY_MI2S_RX, VOICEMMODE1, 1,
+ 0,
++		       q6voice_get_mixer_playback, q6v
+oice_put_mixer_playback),
+ };
+ 
+ static const
+ struct snd_kcontrol_new quaternary_mi2s_rx_m
+ixer_controls[] = {
+-	SOC_SINGLE_EXT("CS-Voic
+e", QUATERNARY_MI2S_RX, 0, 1, 0,
+-		       q6
+voice_get_mixer, q6voice_put_mixer)
++	SOC_SIN
+GLE_EXT("CS-Voice", QUATERNARY_MI2S_RX, CS_VO
+ICE, 1, 0,
++		       q6voice_get_mixer_playba
+ck, q6voice_put_mixer_playback),
++	SOC_SINGLE
+_EXT("VoiceMMode1", QUATERNARY_MI2S_RX, VOICE
+MMODE1, 1, 0,
++		       q6voice_get_mixer_pla
+yback, q6voice_put_mixer_playback),
+ };
+ 
+ st
+atic const struct snd_kcontrol_new quinary_mi
+2s_rx_mixer_controls[] = {
+-	SOC_SINGLE_EXT("
+CS-Voice", QUINARY_MI2S_RX, 0, 1, 0,
+-		     
+  q6voice_get_mixer, q6voice_put_mixer)
++	SOC
+_SINGLE_EXT("CS-Voice", QUINARY_MI2S_RX, CS_V
+OICE, 1, 0,
++		       q6voice_get_mixer_playb
+ack, q6voice_put_mixer_playback),
++	SOC_SINGL
+E_EXT("VoiceMMode1", QUINARY_MI2S_RX, VOICEMM
+ODE1, 1, 0,
++		       q6voice_get_mixer_playb
+ack, q6voice_put_mixer_playback),
+ };
+ 
+ stat
+ic const struct snd_soc_dapm_widget q6voice_d
+apm_widgets[] = {
+ 	SND_SOC_DAPM_AIF_IN("CS-V
+OICE_DL1", "CS-VOICE Playback", 0, SND_SOC_NO
+PM, 0, 0),
+ 	SND_SOC_DAPM_AIF_OUT("CS-VOICE_U
+L1", "CS-VOICE Capture", 0, SND_SOC_NOPM, 0, 
+0),
+ 	SND_SOC_DAPM_MIXER("CS-Voice Capture Mi
+xer", SND_SOC_NOPM, 0, 0,
+-			   voice_tx_mix
+er_controls,
+-			   ARRAY_SIZE(voice_tx_mixer
+_controls)),
++			   cs_voice_tx_mixer_control
+s,
++			   ARRAY_SIZE(cs_voice_tx_mixer_contro
+ls)),
++	SND_SOC_DAPM_AIF_IN("VOICEMMODE1_DL1"
+, "VOICEMMODE1 Playback", 0, SND_SOC_NOPM, 0,
+ 0),
++	SND_SOC_DAPM_AIF_OUT("VOICEMMODE1_UL1"
+, "VOICEMMODE1 Capture", 0, SND_SOC_NOPM, 0, 
+0),
++	SND_SOC_DAPM_MIXER("VoiceMMode1 Capture
+ Mixer", SND_SOC_NOPM, 0, 0,
++			   voicemmod
+e1_tx_mixer_controls,
++			   ARRAY_SIZE(voice
+mmode1_tx_mixer_controls)),
+ 	SND_SOC_DAPM_MI
+XER("PRI_MI2S_RX Voice Mixer", SND_SOC_NOPM, 
+0, 0,
+ 			   primary_mi2s_rx_mixer_controls,
+
+ 			   ARRAY_SIZE(primary_mi2s_rx_mixer_contr
+ols)),
+@@ -178,12 +289,24 @@ static const str
+uct snd_soc_dapm_route q6voice_dapm_routes[] 
+= {
+ 	{ "CS-Voice Capture Mixer",	"QUAT_MI2S_
+TX",	"QUAT_MI2S_TX" },
+ 	{ "CS-Voice Capture 
+Mixer",	"QUIN_MI2S_TX",	"QUIN_MI2S_TX" },
+ 	{
+ "CS-VOICE_UL1",		NULL,		"CS-Voice Capture Mi
+xer" },
++	{ "VoiceMMode1 Capture Mixer",	"PRI
+_MI2S_TX",	"PRI_MI2S_TX" },
++	{ "VoiceMMode1 
+Capture Mixer",	"SEC_MI2S_TX",	"SEC_MI2S_TX" 
+},
++	{ "VoiceMMode1 Capture Mixer",	"TERT_MI2
+S_TX",	"TERT_MI2S_TX" },
++	{ "VoiceMMode1 Cap
+ture Mixer",	"QUAT_MI2S_TX",	"QUAT_MI2S_TX" }
+,
++	{ "VoiceMMode1 Capture Mixer",	"QUIN_MI2S
+_TX",	"QUIN_MI2S_TX" },
++	{ "VOICEMMODE1_UL1"
+,		NULL,		"VoiceMMode1 Capture Mixer" },
+ 
+ 	
+{ "PRI_MI2S_RX Voice Mixer",	"CS-Voice",	"CS-
+VOICE_DL1" },
+ 	{ "SEC_MI2S_RX Voice Mixer",	
+"CS-Voice",	"CS-VOICE_DL1" },
+ 	{ "TERT_MI2S_
+RX Voice Mixer",	"CS-Voice",	"CS-VOICE_DL1" }
+,
+ 	{ "QUAT_MI2S_RX Voice Mixer",	"CS-Voice",
+	"CS-VOICE_DL1" },
+ 	{ "QUIN_MI2S_RX Voice Mi
+xer",	"CS-Voice",	"CS-VOICE_DL1" },
++	{ "PRI_
+MI2S_RX Voice Mixer",	"VoiceMMode1",	"VOICEMM
+ODE1_DL1" },
++	{ "SEC_MI2S_RX Voice Mixer",	"
+VoiceMMode1",	"VOICEMMODE1_DL1" },
++	{ "TERT_
+MI2S_RX Voice Mixer",	"VoiceMMode1",	"VOICEMM
+ODE1_DL1" },
++	{ "QUAT_MI2S_RX Voice Mixer",	
+"VoiceMMode1",	"VOICEMMODE1_DL1" },
++	{ "QUIN
+_MI2S_RX Voice Mixer",	"VoiceMMode1",	"VOICEM
+MODE1_DL1" },
++
+ 	{ "PRI_MI2S_RX",		NULL,		"P
+RI_MI2S_RX Voice Mixer" },
+ 	{ "SEC_MI2S_RX",
+		NULL,		"SEC_MI2S_RX Voice Mixer" },
+ 	{ "TE
+RT_MI2S_RX",		NULL,		"TERT_MI2S_RX Voice Mixe
+r" },
+diff --git a/sound/soc/qcom/qdsp6/q6voi
+ce.h b/sound/soc/qcom/qdsp6/q6voice.h
+index e
+2f1e43a0360..12f9294f127f 100644
+--- a/sound/
+soc/qcom/qdsp6/q6voice.h
++++ b/sound/soc/qcom
+/qdsp6/q6voice.h
+@@ -3,14 +3,14 @@
+ #define _
+Q6_VOICE_H
+ 
+ enum q6voice_path_type {
+-	Q6VO
+ICE_PATH_VOICE	= 0,
+-	/* TODO: Q6VOICE_PATH_V
+OIP	= 1, */
+-	/* TODO: Q6VOICE_PATH_VOLTE	= 2
+, */
+-	/* TODO: Q6VOICE_PATH_VOICE2	= 3, */
+-
+	/* TODO: Q6VOICE_PATH_QCHAT	= 4, */
+-	/* TOD
+O: Q6VOICE_PATH_VOWLAN	= 5, */
+-	/* TODO: Q6V
+OICE_PATH_VOICEMMODE1	= 6, */
+-	/* TODO: Q6VO
+ICE_PATH_VOICEMMODE2	= 7, */
++	Q6VOICE_PATH_V
+OICE		= 0,
++	Q6VOICE_PATH_VOIP		= 1,
++	Q6VOIC
+E_PATH_VOLTE		= 2,
++	Q6VOICE_PATH_VOICE2		= 3
+,
++	Q6VOICE_PATH_QCHAT		= 4,
++	Q6VOICE_PATH_V
+OWLAN		= 5,
++	Q6VOICE_PATH_VOICEMMODE1	= 6,
++
+	Q6VOICE_PATH_VOICEMMODE2	= 7,
+ 	Q6VOICE_PATH
+_COUNT
+ };
+ 
+-- 
+2.53.0
+
+
+
