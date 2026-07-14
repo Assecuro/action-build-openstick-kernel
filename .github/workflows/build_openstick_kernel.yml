@@ -13,16 +13,19 @@ on:
           - trixie
           - noble
           - plucky
+          - resolute
       kernel_version:
         description: 'Kernel version (e.g. v6.6)'
         required: true
         type: choice
         default: 'v6.12.1-msm8916'
         options:
-          - 'v6.12.1-msm8916'
           - 'v6.6-msm8916'
+          - 'v6.12.1-msm8916'
+          - 'wip/msm8916/6.18-rc6'
           - 'wip/msm8916/6.19'
           - 'wip/msm8916/7.0'
+          - 'wip/msm8916/7.1-rc6'
       update_last_kernel_patch:
         description: 'Do you want to update the kernel to the latest patch?'
         required: true
@@ -51,10 +54,19 @@ on:
         options:
           - btrfs
           - ext4
+          - f2fs
+      cc_type:
+        description: 'Set cc type(e.g. gcc/clang)'
+        type: choice
+        default: gcc
+        required: true
+        options:
+          - gcc
+          - clang
 
 jobs:
   build_debian:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-26.04-arm
     env:
       ARCH: arm64
       DEB_VERSION: ${{ github.run_id }}  # 用运行ID确保版本唯一性
@@ -63,24 +75,36 @@ jobs:
 
     steps:
     # 1. 环境初始化
+    - name: Free Disk Space (Ubuntu)
+      uses: jlumbroso/free-disk-space@main
+      with:
+        tool-cache: false     # 保留 Python
+        android: true
+        dotnet: true
+        haskell: true
+        large-packages: true
+        docker-images: true
+        swap-storage: true
+
     - name: Setup Build Environment
       run: |
         sudo apt-get update
         sudo apt-get install -y \
           build-essential libncurses-dev libssl-dev bc flex bison \
-          gcc-14 g++-14 dpkg-dev kmod cpio rsync u-boot-tools \
+          gcc-15 g++-15 dpkg-dev kmod cpio rsync u-boot-tools \
           debhelper libelf-dev libssl-dev coreutils \
-          android-sdk-libsparse-utils wget gcc-14-aarch64-linux-gnu \
-          curl libdw-dev
-          wget http://ftp.debian.org/debian/pool/main/a/android-platform-tools/mkbootimg_34.0.5-12_all.deb
-          sudo dpkg -i mkbootimg_34.0.5-12_all.deb
-          wget http://ftp.debian.org/debian/pool/main/d/debootstrap/debootstrap_1.0.141_all.deb
-          sudo dpkg -i debootstrap_1.0.141_all.deb
+          android-sdk-libsparse-utils wget gcc-15-aarch64-linux-gnu \
+          curl libdw-dev f2fs-tools mkbootimg debootstrap \
+          llvm clang lld
+      #    wget http://ftp.debian.org/debian/pool/main/a/android-platform-tools/mkbootimg_34.0.5-12_all.deb
+      #    sudo dpkg -i mkbootimg_34.0.5-12_all.deb
+      #    wget http://ftp.debian.org/debian/pool/main/d/debootstrap/debootstrap_1.0.144_all.deb
+      #    sudo dpkg -i debootstrap_1.0.144_all.deb
       # 安装编译依赖项 [5,6](@ref)
 
     # 2-1. 获取本项目源码
     - name: Checkout Workflow Repo
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         lfs: true
         submodules: recursive
@@ -88,7 +112,7 @@ jobs:
 
     # 2-2. 获取内核源码
     - name: Checkout Kernel Source
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         repository: msm8916-mainline/linux
         ref: ${{ inputs.kernel_version }}  # 使用输入的内核版本
@@ -99,23 +123,50 @@ jobs:
       id: configure
       run: |
         cd linux-src
-        if [ "${{ inputs.update_last_kernel_patch }}" == "true" ]; then
+        export ARCH=$ARCH
+        if [ "${{ inputs.cc_type }}" = "clang" ]; then
+          export LD=ld.lld
+          export LLVM=1
+          export LLVM_IAS=1
+          unset CC
+          unset HOSTCC
+        else
+          export CC=gcc-15
+          export HOSTCC=gcc-15
+          unset LLVM
+          unset LLVM_IAS
+        fi
+        KERNEL_VER=$(make kernelversion)
+        version="$KERNEL_VER"
+        clean_version=$(echo "$version" | sed 's/-.*//' )
+        IFS='.' read -r major minor _ <<< "$clean_version"
+        echo "Parsed version: $major.$minor"
+        if echo "$version" | grep -q -- "-rc"; then
+          echo "Rebase to $major.$minor release"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/torvalds/linux.git
+          git fetch origin ${{ inputs.kernel_version }} --depth=1000
+          git fetch upstream v$major.$minor
+          git tag v${major}.${minor} FETCH_HEAD
+          git rebase v$major.$minor || git rebase --abort
+          echo $(make kernelversion)
+        fi
+        if [ "${{ inputs.update_last_kernel_patch }}" = "true" ]; then
           chmod +x $GITHUB_WORKSPACE/workspace/update-kernel.sh
           $GITHUB_WORKSPACE/workspace/update-kernel.sh
         fi
         case "${{ inputs.config_profile }}" in
           defconfig)
-            make ARCH=$ARCH CC=gcc-14 HOSTCC=gcc-14 msm8916_defconfig
+            make msm8916_defconfig
             ;;
           custom)
-            make ARCH=$ARCH CC=gcc-14 HOSTCC=gcc-14 msm8916_defconfig
+            make msm8916_defconfig
             scripts/kconfig/merge_config.sh -m -Q .config  $GITHUB_WORKSPACE/workspace/.config # 使用仓库中的自定义配置
-            make ARCH=$ARCH CC=gcc-14 HOSTCC=gcc-14 olddefconfig
+            make olddefconfig
             ;;
         esac
-        KERNEL_VER=$(make kernelversion)
-        echo "kernel_ver=$KERNEL_VER" >> $GITHUB_OUTPUT
-        version="$KERNEL_VER"
+        echo "kernel_ver=$(make kernelversion)" >> $GITHUB_OUTPUT
         # 去掉 -rc 等后缀，只取前两位
         clean_version=$(echo "$version" | sed 's/-.*//' )
         IFS='.' read -r major minor _ <<< "$clean_version"
@@ -124,9 +175,13 @@ jobs:
           echo "Kernel version is greater than 6.18, set CONFIG_CRYPTO_MD5=y and CONFIG_CRYPTO_SHA512=y to fix iwd issus"
           echo "CONFIG_CRYPTO_MD5=y" >> .config
           echo "CONFIG_CRYPTO_SHA512=y" >> .config
-          make ARCH=$ARCH CC=gcc-14 HOSTCC=gcc-14 olddefconfig
+          make olddefconfig
         fi
-        make ARCH=$ARCH CC=gcc-14 HOSTCC=gcc-14 savedefconfig
+        if [ "${{ inputs.cc_type }}" = "clang" ]; then
+          echo "LTO_CLANG_FULL=y" >> .config
+          make olddefconfig
+        fi
+        make savedefconfig
         git apply $GITHUB_WORKSPACE/workspace/patch/ufi.patch
         if [ ! -z "${{ inputs.localversion }}" ]; then
           sed -i "s/^CONFIG_LOCALVERSION=\".*\"/CONFIG_LOCALVERSION=\"${{ inputs.localversion }}\"/" .config
@@ -145,12 +200,22 @@ jobs:
       run: |
         cd linux-src
         # 编译内核与模块
-        # make ARCH=$ARCH CC=gcc-14 HOSTCC=gcc-14 -j$(nproc) all
-        
+        # make -j$(nproc) all
+        export ARCH=$ARCH
+        if [ "${{ inputs.cc_type }}" = "clang" ]; then
+          export LD=ld.lld
+          export LLVM=1
+          export LLVM_IAS=1
+          unset CC
+          unset HOSTCC
+        else
+          export CC=gcc-15
+          export HOSTCC=gcc-15
+          unset LLVM
+          unset LLVM_IAS
+        fi
         # 生成DEB安装包
-        make ARCH=$ARCH \
-          CC=gcc-14 HOSTCC=gcc-14 \
-          KDEB_PKGVERSION=1.${{ env.DEB_VERSION }} \
+        make KDEB_PKGVERSION=1.${{ env.DEB_VERSION }} \
           KBUILD_DEBARCH=arm64 \
           -j$(nproc) \
           bindeb-pkg
@@ -169,15 +234,21 @@ jobs:
       run: |
         mkdir -p rootfs 
         mkdir -p img
-        sudo truncate -s 1073741824  root.img
         if [ "${{ inputs.rootfs_type }}" = "btrfs" ]; then
+          truncate -s 1G root.img
           sudo mkfs.btrfs -O free-space-tree --metadata single --data single --label "rootfs" -U a7ab80e8-e9d1-e8cd-f157-93f69b1d141e root.img
           sudo losetup -fP root.img
-          sudo mount -t btrfs -o compress=zstd,defaults,noatime,sync /dev/loop0 img/
-        else
+          sudo mount -t btrfs -o compress=zstd,defaults,noatime,sync /dev/loop0 rootfs/
+        elif [ "${{ inputs.rootfs_type }}" = "ext4" ]; then
+          truncate -s 1200M  root.img
           sudo mkfs.ext4 -L rootfs -m 0 -O ^has_journal -E lazy_itable_init=0,lazy_journal_init=0 -b 4096 -I 256 root.img
           sudo losetup -fP root.img
-          sudo mount -o sync /dev/loop0 img/
+          sudo mount -o sync /dev/loop0 rootfs/
+        elif [ "${{ inputs.rootfs_type }}" = "f2fs" ]; then
+          truncate -s 1500M  root.img
+        	sudo mkfs.f2fs -l rootfs -U a7ab80e8-e9d1-e8cd-f157-93f69b1d141e -O extra_attr,inode_checksum,sb_checksum,compression root.img
+          sudo losetup -fP root.img
+          sudo mount -t f2fs -o sync,compress_algorithm=zstd:6,compress_chksum,atgc,gc_merge,lazytime,discard /dev/loop0 rootfs/
         fi
         echo "status=success" >>$GITHUB_OUTPUT
   
@@ -187,7 +258,7 @@ jobs:
       if: steps.root.outputs.status == 'success' && !cancelled()
       run: |
         sudo apt-get update
-        sudo apt-get install -y qemu-user-static binfmt-support
+        sudo apt-get install -y qemu-user-binfmt-hwe binfmt-support
         if [[ -f $GITHUB_WORKSPACE/workspace/packages.txt ]]; then
           PKGS=$(grep -vE '^\s*#' $GITHUB_WORKSPACE/workspace/packages.txt | tr '\n' ',' | sed 's/,$//')
           echo "📦 将安装的额外包: $PKGS"
@@ -199,7 +270,7 @@ jobs:
         ver="${{ inputs.debian_version }}"
         if [ "$ver" = "trixie" ] || [ "$ver" = "bookworm" ]; then
           OSTYPE=debian
-        elif [ "$ver" = "noble" ] || [ "$ver" = "plucky" ]; then
+        elif [ "$ver" = "noble" ] || [ "$ver" = "plucky" ] || [ "$ver" = "resolute" ] ; then
           OSTYPE=ubuntu
         fi
         echo "OSTYPE=$OSTYPE" >> $GITHUB_ENV
@@ -218,7 +289,7 @@ jobs:
         else
           PKGS="$PKGS iwd"
         fi
-        if [ "$ver" = "trixie" ]; then
+        if [ "$ver" = "trixie" ] || [ "$ver" = "resolute" ]; then
           PKGS="$PKGS network-manager-iwd"
         fi
         if [[ -n "$PKGS" ]]; then
@@ -226,13 +297,11 @@ jobs:
         else
           sudo DEBIAN_FRONTEND=noninteractive debootstrap --foreign --arch=arm64 --variant=minbase --components="$DEBSRC" ${{ inputs.debian_version }} rootfs "$DEBURL"
         fi
-        sudo cp /usr/bin/qemu-aarch64-static rootfs/usr/bin/
         sudo chroot rootfs /debootstrap/debootstrap --second-stage
         echo "root:1" | sudo chroot rootfs chpasswd
         sudo chroot rootfs useradd -m -s /bin/bash klipper
         echo "klipper:1" | sudo chroot rootfs chpasswd
         sudo chroot rootfs usermod -aG sudo klipper
-        sudo rm rootfs/usr/bin/qemu-aarch64-static
         sudo cp -r --update=none $GITHUB_WORKSPACE/workspace/firmware rootfs/usr/lib/
         sudo chmod -R 644 rootfs/usr/lib/firmware
         sudo cp -a --update=none $GITHUB_WORKSPACE/workspace/files/system/* rootfs/etc/systemd/system
@@ -255,7 +324,7 @@ jobs:
         sudo mount --bind /sys rootfs/sys
         sudo cp /etc/resolv.conf rootfs/etc/resolv.conf
         sudo chroot rootfs /bin/bash -c "echo openstick > /etc/hostname"
-        sudo chroot rootfs /bin/bash -c "echo 'en_US.UTF-8 UTF-8' >> /etc/locale.gen && locale-gen && update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8"
+        sudo chroot rootfs /bin/bash -c "echo 'en_US.UTF-8 UTF-8' > /etc/locale.gen && locale-gen && update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8"
         sudo chroot rootfs /bin/bash -c "cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime"
         sudo chroot rootfs /bin/bash -c "echo 'export TERM=xterm-256color' >> /etc/profile"
         sudo chroot rootfs /bin/bash -c "sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin yes/' /etc/ssh/sshd_config"
@@ -265,10 +334,12 @@ jobs:
         sudo cp $GITHUB_WORKSPACE/workspace/files/10-uname rootfs/etc/update-motd.d/
         sudo chmod +x rootfs/etc/update-motd.d/10-uname
         sudo cp -r --update=none $GITHUB_WORKSPACE/workspace/files/usr rootfs/
-        # sudo cp -r --update=none $GITHUB_WORKSPACE/workspace/files/f2fs_resize rootfs/etc/initramfs-tools/hooks/
-        # sudo cp -r --update=none $GITHUB_WORKSPACE/workspace/files/resize-f2fs rootfs/etc/initramfs-tools/scripts/init-premount/
-        # sudo chmod +x rootfs/etc/initramfs-tools/hooks/f2fs_resize
-        # sudo chmod +x rootfs/etc/initramfs-tools/scripts/init-premount/resize-f2fs
+        if [ "${{ inputs.rootfs_type }}" = "f2fs" ]; then
+        	sudo cp -r --update=none $GITHUB_WORKSPACE/workspace/files/f2fs_resize rootfs/etc/initramfs-tools/hooks/
+        	sudo cp -r --update=none $GITHUB_WORKSPACE/workspace/files/resize-f2fs rootfs/etc/initramfs-tools/scripts/init-premount/
+        	sudo chmod +x rootfs/etc/initramfs-tools/hooks/f2fs_resize
+        	sudo chmod +x rootfs/etc/initramfs-tools/scripts/init-premount/resize-f2fs
+        fi
         sudo chroot rootfs /bin/bash -c "chmod +x /usr/local/bin/*.sh"
         sudo chroot rootfs /bin/bash -c "chmod +x /usr/sbin/*.sh"
         sudo chroot rootfs /bin/bash -c "rm -f /root/*dbg*"
@@ -316,9 +387,11 @@ jobs:
         echo "✅ 使用的 initrd: $INITRD"
         cp $INITRD $GITHUB_WORKSPACE/artifacts/
         if [ "${{ inputs.rootfs_type }}" = "btrfs" ]; then
-          CMDLINE="earlycon root=PARTUUID=a7ab80e8-e9d1-e8cd-f157-93f69b1d141e rootflags=compress=zstd,defaults,noatime,discard=async,autodefrag,space_cache=v2,commit=5 console=ttyMSM0,115200 audit=0 no_framebuffer=true rw"
+          CMDLINE="earlycon root=PARTUUID=a7ab80e8-e9d1-e8cd-f157-93f69b1d141e rootflags=compress=zstd,defaults,noatime,discard=async,autodefrag,space_cache=v2,commit=5 console=ttyMSM0,115200 audit=0 rw"
+        elif [ "${{ inputs.rootfs_type }}" = "f2fs" ]; then
+          CMDLINE="earlycon root=PARTUUID=a7ab80e8-e9d1-e8cd-f157-93f69b1d141e rootfstype=f2fs rootflags=defaults,noatime,compress_algorithm=zstd:6,compress_chksum,atgc,gc_merge,lazytime,discard console=ttyMSM0,115200 rw audit=0"
         else
-          CMDLINE="earlycon root=LABEL=rootfs console=ttyMSM0,115200 audit=0 no_framebuffer=true rw"
+        	CMDLINE="earlycon root=LABEL=rootfs console=ttyMSM0,115200 audit=0 rw"
         fi
         echo "✅ 使用的 cmdline: $CMDLINE"
         mkbootimg \
@@ -342,22 +415,23 @@ jobs:
         sudo umount rootfs/dev/pts
         sudo umount rootfs/dev
         sudo umount rootfs/sys
-        sudo rsync -axv rootfs/* img
+        sudo du -sh rootfs
+
         if [ "${{ inputs.rootfs_type }}" = "btrfs" ]; then
-          sudo chroot img /bin/bash -c "chattr +C /var/cache"
-          sudo chroot img /bin/bash -c "chattr +C /var/tmp"
-          sudo chroot img /bin/bash -c "chattr +C /var/log/journal"
-          sudo chroot img /bin/bash -c "chattr +C /var/log"
+          sudo chroot rootfs /bin/bash -c "chattr +C /var/cache"
+          sudo chroot rootfs /bin/bash -c "chattr +C /var/tmp"
+          sudo chroot rootfs /bin/bash -c "chattr +C /var/log/journal"
+          sudo chroot rootfs /bin/bash -c "chattr +C /var/log"
         fi
         sudo sync
-        sudo umount img
+        sudo umount rootfs
         img2simg root.img $GITHUB_WORKSPACE/rootfs.img
         echo "status=success" >>$GITHUB_OUTPUT
 
     # 9. 上传制品
     - name: Upload Artifacts
       if: steps.kernel.outputs.status == 'success' && !cancelled()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: kernel-${{ steps.configure.outputs.kernel_ver }}-arm64-debs
         path: |
@@ -384,18 +458,15 @@ jobs:
           rootfs.img
           boot.img
 
-    - name: Delete workflow runs
-      uses: Mattraks/delete-workflow-runs@main
+    # 10. 删除runs
+    - name: Delete releases and workflows runs
+      uses: ophub/delete-releases-workflows@main
       with:
-        retain_days: 1
-        keep_minimum_runs: 3
-
-    - name: Remove old Releases
-      uses: dev-drprasad/delete-older-releases@master
-      if: env.UPLOAD_RELEASE == 'true' && !cancelled()
-      with:
-        keep_latest: 3
+        delete_releases: true
+        releases_keep_latest: 3
         delete_tags: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        delete_workflows: true
+        workflows_keep_day: 10
+        gh_token: ${{ secrets.GITHUB_TOKEN }}
+
 
