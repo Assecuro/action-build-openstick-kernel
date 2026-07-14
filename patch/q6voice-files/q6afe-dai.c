@@ -1067,6 +1067,7 @@ static void of_q6afe_parse_dai_data(struct device *dev,
 		switch (id) {
 		/* MI2S specific properties */
 		case QUINARY_MI2S_RX ... QUINARY_MI2S_TX:
+		case INT0_MI2S_RX ... INT6_MI2S_TX:
 		case PRIMARY_MI2S_RX ... QUATERNARY_MI2S_TX:
 			priv = &data->priv[id];
 			ret = of_property_read_variable_u32_array(node,
