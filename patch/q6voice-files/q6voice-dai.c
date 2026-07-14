@@ -11,6 +11,9 @@
 
 #define DRV_NAME	"q6voice-dai"
 #define Q6VOICE_CAPTURE	BIT(15)
+#ifndef VOICEMMODE1
+#define VOICEMMODE1	1
+#endif
 
 static int q6voice_dai_startup(struct snd_pcm_substream *substream,
 			       struct snd_soc_dai *dai)
@@ -172,13 +175,6 @@ static const struct snd_kcontrol_new cs_voice_tx_mixer_controls[] = {
 		       q6voice_get_mixer, q6voice_put_mixer),
 	SOC_SINGLE_EXT("QUIN_MI2S_TX", QUINARY_MI2S_TX, Q6VOICE_CAPTURE | Q6VOICE_PATH_VOICE, 1, 0,
 		       q6voice_get_mixer, q6voice_put_mixer),
-		       q6voice_get_mixer, q6voice_put_mixer),
-		       q6voice_get_mixer, q6voice_put_mixer),
-		       q6voice_get_mixer, q6voice_put_mixer),
-		       q6voice_get_mixer, q6voice_put_mixer),
-		       q6voice_get_mixer, q6voice_put_mixer),
-		       q6voice_get_mixer, q6voice_put_mixer),
-		       q6voice_get_mixer, q6voice_put_mixer),
 };
 
 static const struct snd_kcontrol_new voicemmode1_tx_mixer_controls[] = {
@@ -191,13 +187,6 @@ static const struct snd_kcontrol_new voicemmode1_tx_mixer_controls[] = {
 	SOC_SINGLE_EXT("QUAT_MI2S_TX", QUATERNARY_MI2S_TX, Q6VOICE_CAPTURE | Q6VOICE_PATH_VOICEMMODE1, 1, 0,
 		       q6voice_get_mixer, q6voice_put_mixer),
 	SOC_SINGLE_EXT("QUIN_MI2S_TX", QUINARY_MI2S_TX, Q6VOICE_CAPTURE | Q6VOICE_PATH_VOICEMMODE1, 1, 0,
-		       q6voice_get_mixer, q6voice_put_mixer),
-		       q6voice_get_mixer, q6voice_put_mixer),
-		       q6voice_get_mixer, q6voice_put_mixer),
-		       q6voice_get_mixer, q6voice_put_mixer),
-		       q6voice_get_mixer, q6voice_put_mixer),
-		       q6voice_get_mixer, q6voice_put_mixer),
-		       q6voice_get_mixer, q6voice_put_mixer),
 		       q6voice_get_mixer, q6voice_put_mixer),
 };
 
