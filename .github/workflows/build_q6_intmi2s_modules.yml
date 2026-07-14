@@ -111,6 +111,7 @@ jobs:
           cp $GITHUB_WORKSPACE/workspace/patch/q6voice-files/q6mvm.c sound/soc/qcom/qdsp6/q6mvm.c
           cp $GITHUB_WORKSPACE/workspace/patch/q6voice-files/q6voice.h sound/soc/qcom/qdsp6/q6voice.h
           cp $GITHUB_WORKSPACE/workspace/patch/q6voice-files/q6voice-dai.c sound/soc/qcom/qdsp6/q6voice-dai.c
+          cp $GITHUB_WORKSPACE/workspace/patch/q6voice-files/apq8016_sbc.c sound/soc/qcom/apq8016_sbc.c
 
           case "${{ inputs.config_profile }}" in
             defconfig)
@@ -168,6 +169,7 @@ jobs:
           cp sound/soc/qcom/qdsp6/q6voice-common.ko "$out/modules/"
           cp sound/soc/qcom/qdsp6/q6voice-dai.ko "$out/modules/"
           cp sound/soc/qcom/qdsp6/q6mvm.ko "$out/modules/"
+          cp sound/soc/qcom/snd-soc-apq8016-sbc.ko "$out/modules/"
           (cd "$out" && find . -type f -print0 | xargs -0 sha256sum > SHA256SUMS)
 
       - name: Upload Q6 INT MI2S Artifact
