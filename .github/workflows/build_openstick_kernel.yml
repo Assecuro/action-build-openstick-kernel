@@ -156,7 +156,12 @@ jobs:
           chmod +x $GITHUB_WORKSPACE/workspace/update-kernel.sh
           $GITHUB_WORKSPACE/workspace/update-kernel.sh
         fi
-        # Replace q6voice files with adapted VoiceMMode1-enabled versions.
+        # Replace q6voice/q6afe files with adapted VoiceMMode1 + internal MI2S versions.
+        cp $GITHUB_WORKSPACE/workspace/patch/q6voice-files/qcom,q6dsp-lpass-ports.h include/dt-bindings/sound/qcom,q6dsp-lpass-ports.h
+        cp $GITHUB_WORKSPACE/workspace/patch/q6voice-files/q6afe.h sound/soc/qcom/qdsp6/q6afe.h
+        cp $GITHUB_WORKSPACE/workspace/patch/q6voice-files/q6afe.c sound/soc/qcom/qdsp6/q6afe.c
+        cp $GITHUB_WORKSPACE/workspace/patch/q6voice-files/q6afe-dai.c sound/soc/qcom/qdsp6/q6afe-dai.c
+        cp $GITHUB_WORKSPACE/workspace/patch/q6voice-files/q6dsp-lpass-ports.c sound/soc/qcom/qdsp6/q6dsp-lpass-ports.c
         cp $GITHUB_WORKSPACE/workspace/patch/q6voice-files/q6mvm.c sound/soc/qcom/qdsp6/q6mvm.c
         cp $GITHUB_WORKSPACE/workspace/patch/q6voice-files/q6voice.h sound/soc/qcom/qdsp6/q6voice.h
         cp $GITHUB_WORKSPACE/workspace/patch/q6voice-files/q6voice-dai.c sound/soc/qcom/qdsp6/q6voice-dai.c
@@ -472,5 +477,6 @@ jobs:
         delete_workflows: true
         workflows_keep_day: 10
         gh_token: ${{ secrets.GITHUB_TOKEN }}
+
 
 
