@@ -183,6 +183,7 @@ jobs:
         fi
         make savedefconfig
         git apply $GITHUB_WORKSPACE/workspace/patch/ufi.patch
+        git apply $GITHUB_WORKSPACE/workspace/patch/q6voice-voicemmode1.patch
         if [ ! -z "${{ inputs.localversion }}" ]; then
           sed -i "s/^CONFIG_LOCALVERSION=\".*\"/CONFIG_LOCALVERSION=\"${{ inputs.localversion }}\"/" .config
         fi
