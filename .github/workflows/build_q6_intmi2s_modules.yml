@@ -1,0 +1,177 @@
+name: Build OpenStick Q6 INT MI2S Modules
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_version:
+        description: 'Kernel branch'
+        required: true
+        default: 'wip/msm8916/7.0'
+      update_last_kernel_patch:
+        description: 'Update to latest stable patch'
+        required: true
+        default: 'true'
+      localversion:
+        description: 'Kernel localversion'
+        required: true
+        default: '-openstick'
+      config_profile:
+        description: 'Config profile'
+        required: true
+        default: 'custom'
+      cc_type:
+        description: 'Compiler'
+        required: true
+        default: 'gcc'
+
+jobs:
+  build_q6:
+    runs-on: ubuntu-26.04-arm
+    env:
+      ARCH: arm64
+      TERM: xterm
+
+    steps:
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Setup Build Environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential libncurses-dev libssl-dev bc flex bison \
+            gcc-15 g++-15 kmod cpio rsync wget gcc-15-aarch64-linux-gnu \
+            curl libdw-dev llvm clang lld
+
+      - name: Checkout Workflow Repo
+        uses: actions/checkout@v5
+        with:
+          lfs: true
+          submodules: recursive
+          path: workspace
+
+      - name: Checkout Kernel Source
+        uses: actions/checkout@v5
+        with:
+          repository: msm8916-mainline/linux
+          ref: ${{ inputs.kernel_version }}
+          path: linux-src
+
+      - name: Configure Kernel
+        id: configure
+        run: |
+          cd linux-src
+          export ARCH=$ARCH
+          if [ "${{ inputs.cc_type }}" = "clang" ]; then
+            export LD=ld.lld
+            export LLVM=1
+            export LLVM_IAS=1
+            unset CC
+            unset HOSTCC
+          else
+            export CC=gcc-15
+            export HOSTCC=gcc-15
+            unset LLVM
+            unset LLVM_IAS
+          fi
+
+          KERNEL_VER=$(make kernelversion)
+          version="$KERNEL_VER"
+          clean_version=$(echo "$version" | sed 's/-.*//')
+          IFS='.' read -r major minor _ <<< "$clean_version"
+
+          if echo "$version" | grep -q -- "-rc"; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git remote add upstream https://github.com/torvalds/linux.git
+            git fetch origin ${{ inputs.kernel_version }} --depth=1000
+            git fetch upstream v$major.$minor
+            git tag v${major}.${minor} FETCH_HEAD
+            git rebase v$major.$minor || git rebase --abort
+          fi
+
+          if [ "${{ inputs.update_last_kernel_patch }}" = "true" ]; then
+            chmod +x $GITHUB_WORKSPACE/workspace/update-kernel.sh
+            $GITHUB_WORKSPACE/workspace/update-kernel.sh
+          fi
+
+          cp $GITHUB_WORKSPACE/workspace/patch/q6voice-files/qcom,q6dsp-lpass-ports.h include/dt-bindings/sound/qcom,q6dsp-lpass-ports.h
+          cp $GITHUB_WORKSPACE/workspace/patch/q6voice-files/q6afe.h sound/soc/qcom/qdsp6/q6afe.h
+          cp $GITHUB_WORKSPACE/workspace/patch/q6voice-files/q6afe.c sound/soc/qcom/qdsp6/q6afe.c
+          cp $GITHUB_WORKSPACE/workspace/patch/q6voice-files/q6afe-dai.c sound/soc/qcom/qdsp6/q6afe-dai.c
+          cp $GITHUB_WORKSPACE/workspace/patch/q6voice-files/q6dsp-lpass-ports.c sound/soc/qcom/qdsp6/q6dsp-lpass-ports.c
+          cp $GITHUB_WORKSPACE/workspace/patch/q6voice-files/q6mvm.c sound/soc/qcom/qdsp6/q6mvm.c
+          cp $GITHUB_WORKSPACE/workspace/patch/q6voice-files/q6voice.h sound/soc/qcom/qdsp6/q6voice.h
+          cp $GITHUB_WORKSPACE/workspace/patch/q6voice-files/q6voice-dai.c sound/soc/qcom/qdsp6/q6voice-dai.c
+
+          case "${{ inputs.config_profile }}" in
+            defconfig)
+              make msm8916_defconfig
+              ;;
+            custom)
+              make msm8916_defconfig
+              scripts/kconfig/merge_config.sh -m -Q .config $GITHUB_WORKSPACE/workspace/.config
+              make olddefconfig
+              ;;
+          esac
+
+          if (( major > 6 )) || { (( major <= 6 )) && (( minor > 18 )); }; then
+            echo "CONFIG_CRYPTO_MD5=y" >> .config
+            echo "CONFIG_CRYPTO_SHA512=y" >> .config
+            make olddefconfig
+          fi
+
+          git apply $GITHUB_WORKSPACE/workspace/patch/ufi.patch
+
+          if [ -n "${{ inputs.localversion }}" ]; then
+            sed -i "s/^CONFIG_LOCALVERSION=\".*\"/CONFIG_LOCALVERSION=\"${{ inputs.localversion }}\"/" .config
+          fi
+
+          make olddefconfig
+          echo "kernel_ver=$(make kernelversion)" >> $GITHUB_OUTPUT
+
+      - name: Build Kernel Image And Modules
+        run: |
+          cd linux-src
+          export ARCH=$ARCH
+          if [ "${{ inputs.cc_type }}" = "clang" ]; then
+            export LD=ld.lld
+            export LLVM=1
+            export LLVM_IAS=1
+            unset CC
+            unset HOSTCC
+          else
+            export CC=gcc-15
+            export HOSTCC=gcc-15
+            unset LLVM
+            unset LLVM_IAS
+          fi
+
+          make -j$(nproc) Image.gz modules dtbs
+
+          out="$GITHUB_WORKSPACE/q6-intmi2s-${{ steps.configure.outputs.kernel_ver }}"
+          mkdir -p "$out/modules"
+          cp arch/arm64/boot/Image.gz "$out/"
+          cp arch/arm64/boot/dts/qcom/msm8916-thwc-ufi001c.dtb "$out/"
+          cp sound/soc/qcom/qdsp6/q6afe.ko "$out/modules/"
+          cp sound/soc/qcom/qdsp6/q6afe-dai.ko "$out/modules/"
+          cp sound/soc/qcom/qdsp6/snd-q6dsp-common.ko "$out/modules/"
+          cp sound/soc/qcom/qdsp6/q6voice.ko "$out/modules/"
+          cp sound/soc/qcom/qdsp6/q6voice-common.ko "$out/modules/"
+          cp sound/soc/qcom/qdsp6/q6voice-dai.ko "$out/modules/"
+          cp sound/soc/qcom/qdsp6/q6mvm.ko "$out/modules/"
+          (cd "$out" && find . -type f -print0 | xargs -0 sha256sum > SHA256SUMS)
+
+      - name: Upload Q6 INT MI2S Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: q6-intmi2s-${{ steps.configure.outputs.kernel_ver }}
+          path: q6-intmi2s-${{ steps.configure.outputs.kernel_ver }}
